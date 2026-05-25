@@ -19,6 +19,7 @@ function App() {
   const [winner, setWinner] = useState(null)
   const [error, setError] = useState(null)
   const [roomInput, setRoomInput] = useState('')
+  const [isYourTurn, setIsYourTurn] = useState(false)
   const wsRef = useRef(null)
 
   const connect = useCallback(() => {
@@ -65,9 +66,9 @@ function App() {
         setRoomId(data.roomId)
         setGameState('playing')
         setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
-        setCurrentTurn(0)
+        setCurrentTurn(data.currentTurn)
         setWinner(null)
-        setIsYourTurn(data.player === 1)
+        setIsYourTurn(data.isYourTurn)
         break
       case 'roomCreated':
         setRoomId(data.roomId)
@@ -75,11 +76,12 @@ function App() {
         break
       case 'opponentJoined':
         setPlayer(data.player)
+        setRoomId(data.roomId)
         setGameState('playing')
         setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
-        setCurrentTurn(0)
+        setCurrentTurn(data.currentTurn)
         setWinner(null)
-        setIsYourTurn(data.player === 1)
+        setIsYourTurn(data.isYourTurn)
         break
       case 'init':
         setCurrentTurn(data.currentTurn)
@@ -146,8 +148,6 @@ function App() {
       }, 500)
     }
   }
-
-  const [isYourTurn, setIsYourTurn] = useState(false)
 
   const handleIntersectionClick = (row, col) => {
     if (gameState !== 'playing' || winner) return

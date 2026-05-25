@@ -175,8 +175,8 @@ wss.on('connection', (ws) => {
             case 'findMatch':
                 if (waitingPlayer && waitingPlayer !== ws && waitingPlayer.readyState === WebSocket.OPEN) {
                     const room = createRoom(waitingPlayer, ws);
-                    const player1Msg = { type: 'matched', roomId: room.id, player: 1 };
-                    const player2Msg = { type: 'matched', roomId: room.id, player: 2 };
+                    const player1Msg = { type: 'matched', roomId: room.id, player: 1, isYourTurn: true, currentTurn: 0 };
+                    const player2Msg = { type: 'matched', roomId: room.id, player: 2, isYourTurn: false, currentTurn: 0 };
                     waitingPlayer.send(JSON.stringify(player1Msg));
                     ws.send(JSON.stringify(player2Msg));
                     waitingPlayer = null;
@@ -210,17 +210,21 @@ wss.on('connection', (ws) => {
                     ws.roomId = data.roomId;
                     ws.playerIndex = 1;
 
-                    joinRoom.players[0].send(JSON.stringify({ type: 'opponentJoined', player: 1 }));
-                    ws.send(JSON.stringify({ type: 'opponentJoined', player: 2, roomId: data.roomId }));
-
-                    joinRoom.players.forEach((p, index) => {
-                        p.send(JSON.stringify({
-                            type: 'init',
-                            roomId: data.roomId,
-                            currentTurn: 0,
-                            isYourTurn: index === 0
-                        }));
-                    });
+                    // 发送完整的游戏开始消息
+                    joinRoom.players[0].send(JSON.stringify({ 
+                        type: 'opponentJoined', 
+                        player: 1, 
+                        roomId: data.roomId,
+                        currentTurn: 0,
+                        isYourTurn: true 
+                    }));
+                    ws.send(JSON.stringify({ 
+                        type: 'opponentJoined', 
+                        player: 2, 
+                        roomId: data.roomId,
+                        currentTurn: 0,
+                        isYourTurn: false 
+                    }));
                 } else {
                     ws.send(JSON.stringify({ type: 'error', message: 'Room not found or already full' }));
                 }
