@@ -205,6 +205,22 @@ function handleRejectUndo(ws) {
     });
 }
 
+function handleRestart(ws) {
+    const room = rooms.get(ws.roomId);
+    if (!room) return;
+    
+    room.board = Array(15).fill(null).map(() => Array(15).fill(0));
+    room.currentTurn = 0;
+    room.gameOver = false;
+    room.winner = null;
+    room.moveHistory = [];
+    room.undoRequest = null;
+    
+    broadcastToRoom(room, {
+        type: 'restartGame'
+    });
+}
+
 function handleDisconnect(ws) {
     if (ws.roomId) {
         const room = rooms.get(ws.roomId);
@@ -293,6 +309,10 @@ wss.on('connection', (ws) => {
 
             case 'rejectUndo':
                 handleRejectUndo(ws);
+                break;
+
+            case 'restart':
+                handleRestart(ws);
                 break;
 
             case 'leaveRoom':

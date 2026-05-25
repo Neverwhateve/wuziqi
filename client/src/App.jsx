@@ -100,6 +100,13 @@ function App() {
         setGameState('gameOver')
         setUndoRequest(null)
         break
+      case 'restartGame':
+        setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
+        setCurrentTurn(0)
+        setWinner(null)
+        setGameState('playing')
+        setUndoRequest(null)
+        break
       case 'opponentLeft':
         setError('Opponent left the game')
         setGameState('menu')
@@ -202,6 +209,11 @@ function App() {
     ws.send(JSON.stringify({ type: 'rejectUndo' }))
   }
 
+  const restartGame = () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'restart' }))
+  }
+
   const backToMenu = () => {
     if (ws) {
       ws.send(JSON.stringify({ type: 'leaveRoom' }))
@@ -290,7 +302,7 @@ function App() {
 
             <div className="turn-indicator">
               {winner ? (
-                winner === player ? '你赢了!' : '你输了!'
+                winner === player ? '游戏结束 - 你赢了!' : '游戏结束 - 你输了!'
               ) : (
                 currentTurn + 1 === player ? '轮到你了' : '等待对手'
               )}
@@ -406,9 +418,32 @@ function App() {
               </div>
             )}
 
-            <button className="btn btn-secondary" onClick={backToMenu}>
-              {winner ? '返回主菜单' : '退出房间'}
-            </button>
+            {winner && (
+              <div className="game-over-overlay">
+                <div className="game-over-dialog">
+                  <div className="game-over-title">
+                    {winner === player ? '🎉 你赢了！' : '😢 你输了！'}
+                  </div>
+                  <div className="game-over-subtitle">
+                    {winner === player ? '恭喜你获得胜利！' : '再接再厉，下次一定！'}
+                  </div>
+                  <div className="game-over-buttons">
+                    <button className="btn btn-primary" onClick={restartGame}>
+                      再来一局
+                    </button>
+                    <button className="btn btn-secondary" onClick={backToMenu}>
+                      返回主菜单
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!winner && (
+              <button className="btn btn-secondary" onClick={backToMenu}>
+                退出房间
+              </button>
+            )}
           </div>
         )}
       </div>
