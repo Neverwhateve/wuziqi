@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import './App.css'
 
 const BOARD_SIZE = 15
+const CELL_SIZE = 32
+const PIECE_RADIUS = 14
+
 const WS_URL = window.location.protocol === 'https:' 
   ? `wss://${window.location.host}` 
   : `ws://${window.location.hostname}:8080`
@@ -129,18 +132,18 @@ function App() {
 
   const joinRoom = () => {
     if (roomInput && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput.toUpperCase() }))
+      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput }))
     } else {
       connect()
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput.toUpperCase() }))
+          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput }))
         }
       }, 500)
     }
   }
 
-  const handleCellClick = (row, col) => {
+  const handleIntersectionClick = (row, col) => {
     if (gameState !== 'playing' || winner) return
     if (player !== currentTurn + 1) return
     if (board[row][col] !== 0) return
@@ -161,6 +164,9 @@ function App() {
     setError(null)
     setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
   }
+
+  const boardWidth = (BOARD_SIZE - 1) * CELL_SIZE
+  const boardHeight = (BOARD_SIZE - 1) * CELL_SIZE
 
   return (
     <div className="app">
@@ -195,8 +201,8 @@ function App() {
                 type="text"
                 placeholder="输入房间号"
                 value={roomInput}
-                onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                maxLength={6}
+                onChange={(e) => setRoomInput(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                maxLength={2}
               />
               <button className="btn btn-small" onClick={joinRoom}>
                 加入
@@ -248,24 +254,47 @@ function App() {
             </div>
 
             <div className="board-container">
-              <div className="board">
+              <div 
+                className="board"
+                style={{
+                  width: `${boardWidth}px`,
+                  height: `${boardHeight}px`,
+                  backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`
+                }}
+              >
                 {board.map((row, rowIndex) => (
-                  <div key={rowIndex} className="row">
-                    {row.map((cell, colIndex) => (
-                      <div
-                        key={colIndex}
-                        className="cell"
-                        onClick={() => handleCellClick(rowIndex, colIndex)}
-                      >
-                        {cell !== 0 && (
-                          <div className={`piece ${cell === 1 ? 'black' : 'white'}`}>
-                            {cell === 1 && <div className="piece-inner black-inner"></div>}
-                            {cell === 2 && <div className="piece-inner white-inner"></div>}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  row.map((cell, colIndex) => (
+                    <div
+                      key={`${rowIndex}-${colIndex}`}
+                      className="intersection"
+                      style={{
+                        left: `${colIndex * CELL_SIZE}px`,
+                        top: `${rowIndex * CELL_SIZE}px`
+                      }}
+                      onClick={() => handleIntersectionClick(rowIndex, colIndex)}
+                    >
+                      {cell !== 0 && (
+                        <div className={`piece ${cell === 1 ? 'black' : 'white'}`}>
+                          {cell === 1 && <div className="piece-inner black-inner"></div>}
+                          {cell === 2 && <div className="piece-inner white-inner"></div>}
+                        </div>
+                      )}
+                      {cell === 0 && (
+                        <div className="hover-indicator"></div>
+                      )}
+                    </div>
+                  ))
+                ))}
+                {/* 星位点 */}
+                {[[3,3], [3,11], [7,7], [11,3], [11,11]].map(([row, col]) => (
+                  <div
+                    key={`star-${row}-${col}`}
+                    className="star-point"
+                    style={{
+                      left: `${col * CELL_SIZE}px`,
+                      top: `${row * CELL_SIZE}px`
+                    }}
+                  />
                 ))}
               </div>
             </div>

@@ -44,7 +44,7 @@ const rooms = new Map();
 let waitingPlayer = null;
 
 function generateRoomId() {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
+    return String(Math.floor(Math.random() * 90) + 10);
 }
 
 function createRoom(player1, player2) {
