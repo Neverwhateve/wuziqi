@@ -59,7 +59,9 @@ function createRoom(player1, player2) {
         currentTurn: 0,
         board: Array(15).fill(null).map(() => Array(15).fill(0)),
         gameOver: false,
-        winner: null
+        winner: null,
+        moveHistory: [], // 记录落子历史
+        undoRequest: null // 悔棋请求状态 {requesterIndex: ...}
     };
     rooms.set(roomId, room);
 
@@ -121,7 +123,17 @@ function handleMove(ws, data) {
     if (room.board[row][col] !== 0) return;
 
     const player = ws.playerIndex + 1;
+    
+    // 记录落子历史
+    room.moveHistory.push({
+        row,
+        col,
+        player,
+        boardState: room.board.map(r => [...r]) // 保存棋盘状态快照
+    });
+    
     room.board[row][col] = player;
+    room.currentTurn = 1 - room.currentTurn; // 更新当前回合
 
     const win = checkWin(room.board, row, col, player);
 
@@ -130,7 +142,7 @@ function handleMove(ws, data) {
         row,
         col,
         player,
-        currentTurn: 1 - room.currentTurn
+        currentTurn: room.currentTurn
     });
 
     if (win) {
@@ -141,6 +153,56 @@ function handleMove(ws, data) {
             winner: player
         });
     }
+}
+
+function handleRequestUndo(ws) {
+    const room = rooms.get(ws.roomId);
+    if (!room || room.gameOver || room.moveHistory.length === 0) return;
+    if (room.undoRequest) return; // 已经有请求了
+    
+    const requesterIndex = ws.playerIndex;
+    room.undoRequest = { requesterIndex };
+    
+    broadcastToRoom(room, {
+        type: 'undoRequested',
+        requester: requesterIndex + 1
+    });
+}
+
+function handleAcceptUndo(ws) {
+    const room = rooms.get(ws.roomId);
+    if (!room || !room.undoRequest) return;
+    if (room.undoRequest.requesterIndex === ws.playerIndex) return; // 请求者不能同意自己的请求
+    
+    // 执行悔棋
+    const lastMove = room.moveHistory.pop();
+    if (lastMove) {
+        // 恢复棋盘到上一个状态
+        room.board = lastMove.boardState;
+        room.currentTurn = (room.currentTurn === 0) ? 1 : 0; // 回退回合
+        room.gameOver = false;
+        room.winner = null;
+    }
+    
+    room.undoRequest = null;
+    
+    broadcastToRoom(room, {
+        type: 'undoAccepted',
+        board: room.board,
+        currentTurn: room.currentTurn
+    });
+}
+
+function handleRejectUndo(ws) {
+    const room = rooms.get(ws.roomId);
+    if (!room || !room.undoRequest) return;
+    if (room.undoRequest.requesterIndex === ws.playerIndex) return; // 请求者不能拒绝自己的请求
+    
+    room.undoRequest = null;
+    
+    broadcastToRoom(room, {
+        type: 'undoRejected'
+    });
 }
 
 function handleDisconnect(ws) {
@@ -175,10 +237,8 @@ wss.on('connection', (ws) => {
             case 'findMatch':
                 if (waitingPlayer && waitingPlayer !== ws && waitingPlayer.readyState === WebSocket.OPEN) {
                     const room = createRoom(waitingPlayer, ws);
-                    const player1Msg = { type: 'matched', roomId: room.id, player: 1, isYourTurn: true, currentTurn: 0 };
-                    const player2Msg = { type: 'matched', roomId: room.id, player: 2, isYourTurn: false, currentTurn: 0 };
-                    waitingPlayer.send(JSON.stringify(player1Msg));
-                    ws.send(JSON.stringify(player2Msg));
+                    waitingPlayer.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 1 }));
+                    ws.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 2 }));
                     waitingPlayer = null;
                 } else {
                     waitingPlayer = ws;
@@ -187,19 +247,21 @@ wss.on('connection', (ws) => {
                 break;
 
             case 'createRoom':
-                const roomId = generateRoomId();
-                rooms.set(roomId, {
-                    id: roomId,
+                const crRoomId = generateRoomId();
+                rooms.set(crRoomId, {
+                    id: crRoomId,
                     players: [ws],
                     currentTurn: 0,
                     board: Array(15).fill(null).map(() => Array(15).fill(0)),
                     gameOver: false,
                     winner: null,
-                    waitingForOpponent: true
+                    waitingForOpponent: true,
+                    moveHistory: [],
+                    undoRequest: null
                 });
-                ws.roomId = roomId;
+                ws.roomId = crRoomId;
                 ws.playerIndex = 0;
-                ws.send(JSON.stringify({ type: 'roomCreated', roomId }));
+                ws.send(JSON.stringify({ type: 'roomCreated', roomId: crRoomId }));
                 break;
 
             case 'joinRoom':
@@ -210,21 +272,8 @@ wss.on('connection', (ws) => {
                     ws.roomId = data.roomId;
                     ws.playerIndex = 1;
 
-                    // 发送完整的游戏开始消息
-                    joinRoom.players[0].send(JSON.stringify({ 
-                        type: 'opponentJoined', 
-                        player: 1, 
-                        roomId: data.roomId,
-                        currentTurn: 0,
-                        isYourTurn: true 
-                    }));
-                    ws.send(JSON.stringify({ 
-                        type: 'opponentJoined', 
-                        player: 2, 
-                        roomId: data.roomId,
-                        currentTurn: 0,
-                        isYourTurn: false 
-                    }));
+                    joinRoom.players[0].send(JSON.stringify({ type: 'opponentJoined', player: 1, roomId: data.roomId }));
+                    ws.send(JSON.stringify({ type: 'opponentJoined', player: 2, roomId: data.roomId }));
                 } else {
                     ws.send(JSON.stringify({ type: 'error', message: 'Room not found or already full' }));
                 }
@@ -232,6 +281,18 @@ wss.on('connection', (ws) => {
 
             case 'move':
                 handleMove(ws, data);
+                break;
+
+            case 'requestUndo':
+                handleRequestUndo(ws);
+                break;
+
+            case 'acceptUndo':
+                handleAcceptUndo(ws);
+                break;
+
+            case 'rejectUndo':
+                handleRejectUndo(ws);
                 break;
 
             case 'leaveRoom':

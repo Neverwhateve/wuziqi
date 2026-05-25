@@ -19,7 +19,8 @@ function App() {
   const [winner, setWinner] = useState(null)
   const [error, setError] = useState(null)
   const [roomInput, setRoomInput] = useState('')
-  const [isYourTurn, setIsYourTurn] = useState(false)
+  const [undoRequest, setUndoRequest] = useState(null) // 悔棋请求状态
+  const [showUndoNotification, setShowUndoNotification] = useState(null) // 显示悔棋通知
   const wsRef = useRef(null)
 
   const connect = useCallback(() => {
@@ -66,9 +67,9 @@ function App() {
         setRoomId(data.roomId)
         setGameState('playing')
         setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
-        setCurrentTurn(data.currentTurn)
+        setCurrentTurn(0)
         setWinner(null)
-        setIsYourTurn(data.isYourTurn)
+        setUndoRequest(null)
         break
       case 'roomCreated':
         setRoomId(data.roomId)
@@ -79,13 +80,12 @@ function App() {
         setRoomId(data.roomId)
         setGameState('playing')
         setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
-        setCurrentTurn(data.currentTurn)
+        setCurrentTurn(0)
         setWinner(null)
-        setIsYourTurn(data.isYourTurn)
+        setUndoRequest(null)
         break
       case 'init':
         setCurrentTurn(data.currentTurn)
-        setIsYourTurn(data.isYourTurn)
         break
       case 'move':
         setBoard(prev => {
@@ -94,18 +94,35 @@ function App() {
           return newBoard
         })
         setCurrentTurn(data.currentTurn)
-        setIsYourTurn(data.currentTurn + 1 === player)
         break
       case 'gameOver':
         setWinner(data.winner)
         setGameState('gameOver')
+        setUndoRequest(null)
         break
       case 'opponentLeft':
         setError('Opponent left the game')
         setGameState('menu')
+        setUndoRequest(null)
         break
       case 'error':
         setError(data.message)
+        break
+      case 'undoRequested':
+        setUndoRequest({ requester: data.requester })
+        break
+      case 'undoAccepted':
+        setBoard(data.board)
+        setCurrentTurn(data.currentTurn)
+        setWinner(null)
+        setUndoRequest(null)
+        setShowUndoNotification('悔棋成功！')
+        setTimeout(() => setShowUndoNotification(null), 2000)
+        break
+      case 'undoRejected':
+        setUndoRequest(null)
+        setShowUndoNotification('对方拒绝了悔棋请求')
+        setTimeout(() => setShowUndoNotification(null), 2000)
         break
     }
   }
@@ -151,12 +168,38 @@ function App() {
 
   const handleIntersectionClick = (row, col) => {
     if (gameState !== 'playing' || winner) return
-    if (!isYourTurn) return
     if (board[row][col] !== 0) return
+    if (undoRequest) return // 有悔棋请求时不能落子
+    
+    // 简单直接的判断：黑方是1，白方是2，currentTurn从0开始
+    // 如果是黑方(player=1)，轮到0时可以下
+    // 如果是白方(player=2)，轮到1时可以下
+    if (currentTurn + 1 !== player) return
 
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'move', row, col }))
     }
+  }
+
+  const requestUndo = () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || undoRequest) return
+    ws.send(JSON.stringify({ type: 'requestUndo' }))
+    setShowUndoNotification('已发送悔棋请求，等待对方同意...')
+    setTimeout(() => {
+      if (showUndoNotification && showUndoNotification.includes('等待')) {
+        setShowUndoNotification(null)
+      }
+    }, 3000)
+  }
+
+  const acceptUndo = () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'acceptUndo' }))
+  }
+
+  const rejectUndo = () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'rejectUndo' }))
   }
 
   const backToMenu = () => {
@@ -176,12 +219,6 @@ function App() {
 
   return (
     <div className="app">
-      <div className="background">
-        <div className="orb orb-1"></div>
-        <div className="orb orb-2"></div>
-        <div className="orb orb-3"></div>
-      </div>
-
       <div className="container">
         <h1 className="title">五子棋</h1>
 
@@ -205,7 +242,7 @@ function App() {
             <div className="room-join">
               <input
                 type="text"
-                placeholder="输入房间号"
+                placeholder=""
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value.replace(/\D/g, '').slice(0, 2))}
                 maxLength={2}
@@ -226,11 +263,11 @@ function App() {
 
         {gameState === 'waitingRoom' && (
           <div className="waiting-room">
-            <div className="room-code">
-              <span>房间号</span>
-              <strong>{roomId}</strong>
+            <div className="room-id-display">
+              <div className="room-id-label">房间号</div>
+              <div className="room-id">{roomId}</div>
             </div>
-            <p>等待对手加入...</p>
+            <p className="waiting-text">等待对手加入...</p>
             <button className="btn btn-secondary" onClick={backToMenu}>
               返回
             </button>
@@ -264,10 +301,34 @@ function App() {
                 className="board"
                 style={{
                   width: `${boardWidth}px`,
-                  height: `${boardHeight}px`,
-                  backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`
+                  height: `${boardHeight}px`
                 }}
               >
+                {/* 网格线 - 横线 */}
+                {Array.from({ length: BOARD_SIZE }).map((_, i) => (
+                  <div
+                    key={`h-line-${i}`}
+                    className="grid-line horizontal"
+                    style={{
+                      top: `${i * CELL_SIZE}px`,
+                      left: '0px',
+                      width: `${boardWidth}px`
+                    }}
+                  ></div>
+                ))}
+                {/* 网格线 - 竖线 */}
+                {Array.from({ length: BOARD_SIZE }).map((_, i) => (
+                  <div
+                    key={`v-line-${i}`}
+                    className="grid-line vertical"
+                    style={{
+                      left: `${i * CELL_SIZE}px`,
+                      top: '0px',
+                      height: `${boardHeight}px`
+                    }}
+                  ></div>
+                ))}
+                
                 {board.map((row, rowIndex) => (
                   row.map((cell, colIndex) => (
                     <div
@@ -280,10 +341,7 @@ function App() {
                       onClick={() => handleIntersectionClick(rowIndex, colIndex)}
                     >
                       {cell !== 0 && (
-                        <div className={`piece ${cell === 1 ? 'black' : 'white'}`}>
-                          {cell === 1 && <div className="piece-inner black-inner"></div>}
-                          {cell === 2 && <div className="piece-inner white-inner"></div>}
-                        </div>
+                        <div className={`piece ${cell === 1 ? 'black' : 'white'}`}></div>
                       )}
                       {cell === 0 && (
                         <div className="hover-indicator"></div>
@@ -308,6 +366,45 @@ function App() {
             <div className="room-info">
               房间号: {roomId}
             </div>
+
+            {/* 悔棋按钮 */}
+            {gameState === 'playing' && !winner && (
+              <div className="undo-button-container">
+                <button 
+                  className="btn btn-secondary btn-small" 
+                  onClick={requestUndo}
+                  disabled={undoRequest !== null}
+                >
+                  悔棋
+                </button>
+              </div>
+            )}
+
+            {/* 悔棋通知 */}
+            {showUndoNotification && (
+              <div className="undo-notification">
+                {showUndoNotification}
+              </div>
+            )}
+
+            {/* 悔棋请求弹窗 */}
+            {undoRequest && undoRequest.requester !== player && (
+              <div className="undo-request-overlay">
+                <div className="undo-request-dialog">
+                  <div className="undo-request-title">
+                    对方请求悔棋
+                  </div>
+                  <div className="undo-request-buttons">
+                    <button className="btn btn-primary" onClick={acceptUndo}>
+                      同意
+                    </button>
+                    <button className="btn btn-secondary" onClick={rejectUndo}>
+                      拒绝
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <button className="btn btn-secondary" onClick={backToMenu}>
               {winner ? '返回主菜单' : '退出房间'}
