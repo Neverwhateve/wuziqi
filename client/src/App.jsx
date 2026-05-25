@@ -67,6 +67,7 @@ function App() {
         setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
         setCurrentTurn(0)
         setWinner(null)
+        setIsYourTurn(data.player === 1)
         break
       case 'roomCreated':
         setRoomId(data.roomId)
@@ -81,6 +82,7 @@ function App() {
         break
       case 'init':
         setCurrentTurn(data.currentTurn)
+        setIsYourTurn(data.isYourTurn)
         break
       case 'move':
         setBoard(prev => {
@@ -89,6 +91,7 @@ function App() {
           return newBoard
         })
         setCurrentTurn(data.currentTurn)
+        setIsYourTurn(data.player !== player)
         break
       case 'gameOver':
         setWinner(data.winner)
@@ -143,9 +146,11 @@ function App() {
     }
   }
 
+  const [isYourTurn, setIsYourTurn] = useState(false)
+
   const handleIntersectionClick = (row, col) => {
     if (gameState !== 'playing' || winner) return
-    if (player !== currentTurn + 1) return
+    if (!isYourTurn) return
     if (board[row][col] !== 0) return
 
     if (ws && ws.readyState === WebSocket.OPEN) {

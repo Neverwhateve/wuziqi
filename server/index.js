@@ -44,7 +44,11 @@ const rooms = new Map();
 let waitingPlayer = null;
 
 function generateRoomId() {
-    return String(Math.floor(Math.random() * 90) + 10);
+    let roomId;
+    do {
+        roomId = String(Math.floor(Math.random() * 90) + 10);
+    } while (rooms.has(roomId));
+    return roomId;
 }
 
 function createRoom(player1, player2) {
@@ -209,12 +213,14 @@ wss.on('connection', (ws) => {
                     joinRoom.players[0].send(JSON.stringify({ type: 'opponentJoined', player: 1 }));
                     ws.send(JSON.stringify({ type: 'opponentJoined', player: 2, roomId: data.roomId }));
 
-                    const initMsg = {
-                        type: 'init',
-                        roomId: data.roomId,
-                        currentTurn: 0
-                    };
-                    joinRoom.players.forEach(p => p.send(JSON.stringify(initMsg)));
+                    joinRoom.players.forEach((p, index) => {
+                        p.send(JSON.stringify({
+                            type: 'init',
+                            roomId: data.roomId,
+                            currentTurn: 0,
+                            isYourTurn: index === 0
+                        }));
+                    });
                 } else {
                     ws.send(JSON.stringify({ type: 'error', message: 'Room not found or already full' }));
                 }

@@ -351,14 +351,15 @@ body {
 
 .intersection {
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transform: translate(-50%, -50%);
   z-index: 1;
+  border-radius: 50%;
 }
 
 .intersection:hover .hover-indicator {
@@ -366,8 +367,8 @@ body {
 }
 
 .hover-indicator {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.3);
   opacity: 0;
@@ -385,8 +386,8 @@ body {
 }
 
 .piece {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   position: relative;
   animation: placepiece 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -394,6 +395,7 @@ body {
     0 4px 8px rgba(0, 0, 0, 0.3),
     inset 0 -2px 4px rgba(0, 0, 0, 0.2),
     inset 0 2px 4px rgba(255, 255, 255, 0.3);
+  transform: translate(0, 0);
 }
 
 @keyframes placepiece {
