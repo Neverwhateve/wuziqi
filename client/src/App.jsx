@@ -79,6 +79,7 @@ function App() {
         setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
         setCurrentTurn(0)
         setWinner(null)
+        setIsYourTurn(data.player === 1)
         break
       case 'init':
         setCurrentTurn(data.currentTurn)
@@ -91,7 +92,7 @@ function App() {
           return newBoard
         })
         setCurrentTurn(data.currentTurn)
-        setIsYourTurn(data.player !== player)
+        setIsYourTurn(data.currentTurn + 1 === player)
         break
       case 'gameOver':
         setWinner(data.winner)
