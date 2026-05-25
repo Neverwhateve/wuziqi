@@ -1,0 +1,14 @@
+[phases.setup]
+nixpkgs = ["unstable"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build:client", "npm run copy:public"]
+
+[phases.start]
+cmds = ["npm start"]
+
+[nodejs]
+version = "22"
