@@ -7,8 +7,8 @@
   --color-board: #f3c8a1;
   --color-board-border: #262626;
   --color-grid: #a86b59;
-  --color-piece-black: #2d3a5f;
-  --color-piece-white: #f8f8f8;
+  --color-piece-black: #3d4a70;
+  --color-piece-white: #ffffff;
   --color-text: #262626;
   --color-text-dim: #575757;
   --color-primary: #7886d7;
@@ -330,19 +330,20 @@ body {
 }
 
 .piece.black {
-  background: var(--color-piece-black);
+  background: radial-gradient(circle at 30% 30%, #6b7aa1, #3d4a70, #2a3550);
   box-shadow: 
-    4px 4px 0 #262626,
-    inset 2px 2px 6px rgba(255, 255, 255, 0.3);
-  border-color: #1a2342;
+    3px 3px 0 #1a1a2e,
+    5px 5px 0 #16213e,
+    inset 3px 3px 6px rgba(255, 255, 255, 0.25);
+  border: 2px solid #2d3a5f;
 }
 
 .piece.white {
-  background: var(--color-piece-white);
+  background: radial-gradient(circle at 30% 30%, #ffffff, #f0f0f0, #e0e0e0);
   box-shadow: 
-    4px 4px 0 #888888,
-    inset -2px -2px 4px rgba(0, 0, 0, 0.1);
-  border-color: #cccccc;
+    3px 3px 0 #888888,
+    5px 5px 0 #666666;
+  border: 2px solid #dddddd;
 }
 
 .piece.last-move {
@@ -354,8 +355,8 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   z-index: 1;
 }
 
@@ -363,8 +364,9 @@ body {
 .last-move-marker::after {
   content: '';
   position: absolute;
-  background: #ff3366;
+  background: #ff3355;
   border-radius: 2px;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
 }
 
 .last-move-marker::before {
