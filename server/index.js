@@ -87,6 +87,10 @@ function createRoom(player1, player2) {
         diceRolled: [false, false], // 双方是否已投掷
         playerNames: [null, null] // 玩家昵称
     };
+    // 保存玩家1的昵称
+    if (player1.playerName) {
+        room.playerNames[0] = player1.playerName;
+    }
     rooms.set(roomId, room);
 
     player1.roomId = roomId;
@@ -292,14 +296,38 @@ wss.on('connection', (ws) => {
         }
 
         switch (data.type) {
+            case 'ping':
+                // 响应心跳
+                ws.send(JSON.stringify({ type: 'pong' }))
+                break
             case 'findMatch':
                 if (waitingPlayer && waitingPlayer !== ws && waitingPlayer.readyState === WebSocket.OPEN) {
                     const room = createRoom(waitingPlayer, ws);
-                    waitingPlayer.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 1, dicePhase: true }));
-                    ws.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 2, dicePhase: true }));
+                    // 保存玩家昵称
+                    if (data.playerName) {
+                        room.playerNames[1] = data.playerName;
+                    }
+                    waitingPlayer.send(JSON.stringify({ 
+                        type: 'matched', 
+                        roomId: room.id, 
+                        player: 1, 
+                        dicePhase: true,
+                        opponentName: data.playerName || '对手'
+                    }));
+                    ws.send(JSON.stringify({ 
+                        type: 'matched', 
+                        roomId: room.id, 
+                        player: 2, 
+                        dicePhase: true,
+                        opponentName: room.playerNames[0] || '对手'
+                    }));
                     waitingPlayer = null;
                 } else {
                     waitingPlayer = ws;
+                    // 保存等待玩家的昵称
+                    if (data.playerName) {
+                        ws.playerName = data.playerName;
+                    }
                     ws.send(JSON.stringify({ type: 'waiting' }));
                     // 广播等待房间列表
                     broadcastWaitingRooms();
@@ -308,7 +336,7 @@ wss.on('connection', (ws) => {
 
             case 'createRoom':
                 const crRoomId = generateRoomId();
-                rooms.set(crRoomId, {
+                const newRoom = {
                     id: crRoomId,
                     players: [ws],
                     currentTurn: 0,
@@ -322,7 +350,12 @@ wss.on('connection', (ws) => {
                     diceValues: [null, null],
                     diceRolled: [false, false],
                     playerNames: [null, null]
-                });
+                };
+                // 保存创建房间的玩家昵称
+                if (data.playerName) {
+                    newRoom.playerNames[0] = data.playerName;
+                }
+                rooms.set(crRoomId, newRoom);
                 ws.roomId = crRoomId;
                 ws.playerIndex = 0;
                 ws.send(JSON.stringify({ type: 'roomCreated', roomId: crRoomId }));

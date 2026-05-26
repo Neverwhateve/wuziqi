@@ -30,33 +30,83 @@ function App() {
   const [diceRolled, setDiceRolled] = useState(false) // 是否已投掷骰子
   const [diceValues, setDiceValues] = useState([null, null]) // 骰子点数
   const [chatMessages, setChatMessages] = useState([]) // 聊天消息
+  const [chatInputValue, setChatInputValue] = useState('') // 聊天输入框值
   const wsRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
+  const heartbeatTimerRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
+  const isManualCloseRef = useRef(false)
 
   const connect = useCallback(() => {
+    // 清除之前的定时器
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+    }
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current)
+    }
+
     const websocket = new WebSocket(WS_URL)
     wsRef.current = websocket
     setWs(websocket)
+    isManualCloseRef.current = false
 
     websocket.onopen = () => {
       setError(null)
+      reconnectAttemptsRef.current = 0
+      // 启动心跳检测，每30秒发送一次ping
+      heartbeatTimerRef.current = setInterval(() => {
+        if (websocket.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({ type: 'ping' }))
+        }
+      }, 30000)
     }
 
     websocket.onmessage = (event) => {
       const data = JSON.parse(event.data)
+      if (data.type === 'pong') {
+        // 收到服务器的pong响应，什么都不用做，连接保持活跃
+        return
+      }
       handleMessage(data)
     }
 
     websocket.onerror = () => {
-      setError('Connection error')
+      // 只在游戏进行中显示错误
+      if (gameState === 'playing') {
+        setError('Connection error, trying to reconnect...')
+      }
     }
 
     websocket.onclose = () => {
-      if (gameState === 'playing') {
+      // 停止心跳
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current)
+      }
+
+      // 如果不是手动关闭，尝试重连
+      if (!isManualCloseRef.current && (gameState === 'playing' || gameState === 'waitingRoom' || gameState === 'matching')) {
+        setError('Disconnected, trying to reconnect...')
+        reconnectAttemptsRef.current++
+        
+        // 指数退避重连，最多尝试5次
+        if (reconnectAttemptsRef.current <= 5) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000)
+          reconnectTimerRef.current = setTimeout(() => {
+            connect()
+          }, delay)
+        } else {
+          // 重连失败，返回主菜单
+          setError('Connection failed, please try again')
+          setGameState('menu')
+          reconnectAttemptsRef.current = 0
+        }
+      } else if (gameState === 'playing') {
         setError('Disconnected from server')
         setGameState('menu')
       }
     }
-  }, [])
+  }, [gameState])
 
   useEffect(() => {
     return () => {
@@ -83,6 +133,9 @@ function App() {
         setDiceRolled(false)
         setDiceValues([null, null])
         setChatMessages([])
+        if (data.opponentName) {
+          setOpponentName(data.opponentName)
+        }
         break
       case 'roomCreated':
         setRoomId(data.roomId)
@@ -192,12 +245,12 @@ function App() {
 
   const findMatch = () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'findMatch' }))
+      ws.send(JSON.stringify({ type: 'findMatch', playerName: playerName }))
     } else {
       connect()
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'findMatch' }))
+          wsRef.current.send(JSON.stringify({ type: 'findMatch', playerName: playerName }))
         }
       }, 500)
     }
@@ -212,12 +265,12 @@ function App() {
 
   const createRoom = () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'createRoom' }))
+      ws.send(JSON.stringify({ type: 'createRoom', playerName: playerName }))
     } else {
       connect()
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'createRoom' }))
+          wsRef.current.send(JSON.stringify({ type: 'createRoom', playerName: playerName }))
         }
       }, 500)
     }
@@ -257,6 +310,9 @@ function App() {
         from: 'me',
         timestamp: Date.now()
       }])
+    }
+    if (messageType === 'text') {
+      setChatInputValue('')
     }
   }
   
@@ -334,8 +390,16 @@ function App() {
   }
 
   const backToMenu = () => {
+    isManualCloseRef.current = true
     if (ws) {
       ws.send(JSON.stringify({ type: 'leaveRoom' }))
+    }
+    // 清除定时器
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+    }
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current)
     }
     setGameState('menu')
     setRoomId(null)
@@ -508,10 +572,11 @@ function App() {
                     type="text"
                     placeholder="发送消息..."
                     className="chat-input"
+                    value={chatInputValue}
+                    onChange={(e) => setChatInputValue(e.target.value)}
                     onKeyPress={(e) => {
-                      if (e.key === 'Enter' && e.target.value.trim()) {
-                        sendChatMessage('text', e.target.value.trim())
-                        e.target.value = ''
+                      if (e.key === 'Enter' && chatInputValue.trim()) {
+                        sendChatMessage('text', chatInputValue.trim())
                       }
                     }}
                   />
