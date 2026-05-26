@@ -109,7 +109,10 @@ function App() {
         break
       case 'diceRolled':
         setDiceValues(data.diceValues)
-        setDiceRolled(data.diceRolled[data.player - 1])
+        // 只有当是自己投掷骰子时才更新本地状态
+        if (data.player === player) {
+          setDiceRolled(true)
+        }
         break
       case 'diceTie':
         setDiceRolled(false)
