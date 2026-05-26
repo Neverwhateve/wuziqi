@@ -24,6 +24,12 @@ function App() {
   const [lastMove, setLastMove] = useState(null) // 最后一颗落子位置
   const [hideGameOverOverlay, setHideGameOverOverlay] = useState(false) // 是否隐藏游戏结束弹窗
   const [waitingRooms, setWaitingRooms] = useState([]) // 等待中的房间列表
+  const [playerName, setPlayerName] = useState('') // 玩家昵称
+  const [opponentName, setOpponentName] = useState('对手') // 对手昵称
+  const [dicePhase, setDicePhase] = useState(false) // 是否处于骰子阶段
+  const [diceRolled, setDiceRolled] = useState(false) // 是否已投掷骰子
+  const [diceValues, setDiceValues] = useState([null, null]) // 骰子点数
+  const [chatMessages, setChatMessages] = useState([]) // 聊天消息
   const wsRef = useRef(null)
 
   const connect = useCallback(() => {
@@ -73,6 +79,10 @@ function App() {
         setCurrentTurn(0)
         setWinner(null)
         setUndoRequest(null)
+        setDicePhase(data.dicePhase || false)
+        setDiceRolled(false)
+        setDiceValues([null, null])
+        setChatMessages([])
         break
       case 'roomCreated':
         setRoomId(data.roomId)
@@ -86,6 +96,30 @@ function App() {
         setCurrentTurn(0)
         setWinner(null)
         setUndoRequest(null)
+        setDicePhase(data.dicePhase || false)
+        setDiceRolled(false)
+        setDiceValues([null, null])
+        setChatMessages([])
+        if (data.opponentName) {
+          setOpponentName(data.opponentName)
+        }
+        break
+      case 'opponentNameChanged':
+        setOpponentName(data.opponentName)
+        break
+      case 'diceRolled':
+        setDiceValues(data.diceValues)
+        setDiceRolled(data.diceRolled[data.player - 1])
+        break
+      case 'diceTie':
+        setDiceRolled(false)
+        setDiceValues([null, null])
+        setShowUndoNotification(data.message)
+        setTimeout(() => setShowUndoNotification(null), 3000)
+        break
+      case 'diceComplete':
+        setDicePhase(false)
+        setCurrentTurn(data.firstPlayer - 1)
         break
       case 'init':
         setCurrentTurn(data.currentTurn)
@@ -110,6 +144,10 @@ function App() {
         setWinner(null)
         setGameState('playing')
         setUndoRequest(null)
+        setDicePhase(true) // 重新进入骰子阶段
+        setDiceRolled(false)
+        setDiceValues([null, null])
+        setChatMessages([])
         break
       case 'opponentLeft':
         setError('Opponent left the game')
@@ -137,6 +175,14 @@ function App() {
         break
       case 'waitingRoomsList':
         setWaitingRooms(data.rooms || [])
+        break
+      case 'chatMessage':
+        setChatMessages(prev => [...prev, {
+          type: data.messageType, // 'text' 或 'emoji'
+          content: data.content,
+          from: data.from,
+          timestamp: Date.now()
+        }])
         break
     }
   }
@@ -176,25 +222,68 @@ function App() {
 
   const joinRoom = () => {
     if (roomInput && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput }))
+      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput, playerName: playerName }))
     } else {
       connect()
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput }))
+          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput, playerName: playerName }))
         }
       }, 500)
     }
   }
+  
+  const rollDice = () => {
+    if (!dicePhase || diceRolled) return
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'rollDice' }))
+    }
+  }
+  
+  const sendChatMessage = (messageType, content) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'chatMessage',
+        messageType,
+        content
+      }))
+      // 本地显示自己的消息
+      setChatMessages(prev => [...prev, {
+        type: messageType,
+        content,
+        from: 'me',
+        timestamp: Date.now()
+      }])
+    }
+  }
+  
+  const submitPlayerName = () => {
+    if (playerName.trim() && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'setPlayerName',
+        playerName: playerName.trim()
+      }))
+    }
+  }
+
+  const refreshRooms = () => {
+    // 刷新房间列表，向服务器请求最新的等待房间
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // 服务器会在新连接时自动发送等待房间列表
+      // 这里我们主动断开并重连来刷新列表
+      ws.close()
+    }
+    connect()
+  }
 
   const joinWaitingRoom = (roomId) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomId }))
+      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomId, playerName: playerName }))
     } else {
       connect()
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomId }))
+          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomId, playerName: playerName }))
         }
       }, 500)
     }
@@ -269,6 +358,19 @@ function App() {
 
         {gameState === 'menu' && (
           <div className="menu">
+            <div className="name-input-container">
+              <input
+                type="text"
+                placeholder="输入昵称"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value.slice(0, 10))}
+                maxLength={10}
+                className="name-input"
+              />
+              <button className="btn btn-small" onClick={submitPlayerName} disabled={!playerName.trim()}>
+                ✓
+              </button>
+            </div>
             <button className="btn btn-primary" onClick={findMatch}>
               快速匹配
             </button>
@@ -288,6 +390,9 @@ function App() {
               />
               <button className="btn btn-small" onClick={joinRoom}>
                 加入
+              </button>
+              <button className="btn btn-small" onClick={refreshRooms} title="刷新房间列表">
+                🔄
               </button>
             </div>
             {waitingRooms.length > 0 && (
@@ -337,22 +442,90 @@ function App() {
             <div className="game-info">
               <div className={`player-info ${player === 1 ? 'active' : ''}`}>
                 <div className="piece black"></div>
-                <span>黑方 {player === 1 ? '(你)' : ''}</span>
+                <span>黑方 {player === 1 ? playerName || '(你)' : opponentName}</span>
               </div>
               <div className="vs">VS</div>
               <div className={`player-info ${player === 2 ? 'active' : ''}`}>
                 <div className="piece white"></div>
-                <span>白方 {player === 2 ? '(你)' : ''}</span>
+                <span>白方 {player === 2 ? playerName || '(你)' : opponentName}</span>
               </div>
             </div>
 
             <div className="turn-indicator">
               {winner ? (
-                winner === player ? '游戏结束 - 你赢了!' : '游戏结束 - 你输了!'
+                winner === player ? '🎉 你赢了!' : '😢 你输了!'
+              ) : dicePhase ? (
+                '投掷骰子决定先手'
               ) : (
                 currentTurn + 1 === player ? '轮到你了' : '等待对手'
               )}
             </div>
+            
+            {dicePhase && !winner && (
+              <div className="dice-phase">
+                <div className="dice-container">
+                  <div className="dice-info">
+                    <div className={`dice ${diceValues[0] !== null ? 'rolled' : ''}`}>
+                      {diceValues[0] !== null ? diceValues[0] : '?'}
+                    </div>
+                    <span>你的点数</span>
+                  </div>
+                  <div className="dice-info">
+                    <div className={`dice ${diceValues[1] !== null ? 'rolled' : ''}`}>
+                      {diceValues[1] !== null ? diceValues[1] : '?'}
+                    </div>
+                    <span>对手点数</span>
+                  </div>
+                </div>
+                <button 
+                  className="btn btn-primary roll-dice-btn" 
+                  onClick={rollDice}
+                  disabled={diceRolled}
+                >
+                  {diceRolled ? '等待对手...' : '投掷骰子 🎲'}
+                </button>
+              </div>
+            )}
+
+            {!dicePhase && gameState === 'playing' && !winner && (
+              <div className="chat-container">
+                <div className="chat-messages">
+                  {chatMessages.map((msg, idx) => (
+                    <div key={idx} className={`chat-message ${msg.from === 'me' ? 'mine' : 'theirs'}`}>
+                      {msg.type === 'emoji' ? (
+                        <span className="emoji-message">{msg.content}</span>
+                      ) : (
+                        <span className="text-message">{msg.content}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="chat-input-container">
+                  <input
+                    type="text"
+                    placeholder="发送消息..."
+                    className="chat-input"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && e.target.value.trim()) {
+                        sendChatMessage('text', e.target.value.trim())
+                        e.target.value = ''
+                      }
+                    }}
+                  />
+                  <div className="emoji-buttons">
+                    {['👍', '🎉', '😅', '🤔', '👋', '😊'].map(emoji => (
+                      <button
+                        key={emoji}
+                        className="emoji-btn"
+                        onClick={() => sendChatMessage('emoji', emoji)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="board-container">
               <div 
@@ -362,7 +535,6 @@ function App() {
                   height: `${boardHeight}px`
                 }}
               >
-                {/* 网格线 - 横线 */}
                 {Array.from({ length: BOARD_SIZE }).map((_, i) => (
                   <div
                     key={`h-line-${i}`}
@@ -374,7 +546,6 @@ function App() {
                     }}
                   ></div>
                 ))}
-                {/* 网格线 - 竖线 */}
                 {Array.from({ length: BOARD_SIZE }).map((_, i) => (
                   <div
                     key={`v-line-${i}`}
@@ -414,7 +585,6 @@ function App() {
                     )
                   })
                 ))}
-                {/* 星位点 */}
                 {[[3,3], [3,11], [7,7], [11,3], [11,11]].map(([row, col]) => (
                   <div
                     key={`star-${row}-${col}`}
@@ -432,7 +602,6 @@ function App() {
               房间号: {roomId}
             </div>
 
-            {/* 悔棋按钮 */}
             {gameState === 'playing' && !winner && (
               <div className="undo-button-container">
                 <button 
@@ -445,14 +614,12 @@ function App() {
               </div>
             )}
 
-            {/* 悔棋通知 */}
             {showUndoNotification && (
               <div className="undo-notification">
                 {showUndoNotification}
               </div>
             )}
 
-            {/* 悔棋请求弹窗 */}
             {undoRequest && undoRequest.requester !== player && (
               <div className="undo-request-overlay">
                 <div className="undo-request-dialog">

@@ -80,7 +80,12 @@ function createRoom(player1, player2) {
         gameOver: false,
         winner: null,
         moveHistory: [], // 记录落子历史
-        undoRequest: null // 悔棋请求状态 {requesterIndex: ...}
+        undoRequest: null, // 悔棋请求状态 {requesterIndex: ...}
+        // 骰子相关
+        dicePhase: true, // 是否处于骰子阶段
+        diceValues: [null, null], // 双方骰子点数
+        diceRolled: [false, false], // 双方是否已投掷
+        playerNames: [null, null] // 玩家昵称
     };
     rooms.set(roomId, room);
 
@@ -228,12 +233,16 @@ function handleRestart(ws) {
     const room = rooms.get(ws.roomId);
     if (!room) return;
     
+    // 重置游戏状态，但保留骰子状态让双方重新投掷
     room.board = Array(15).fill(null).map(() => Array(15).fill(0));
     room.currentTurn = 0;
     room.gameOver = false;
     room.winner = null;
     room.moveHistory = [];
     room.undoRequest = null;
+    room.dicePhase = true; // 重新进入骰子阶段
+    room.diceValues = [null, null];
+    room.diceRolled = [false, false];
     
     broadcastToRoom(room, {
         type: 'restartGame'
@@ -286,8 +295,8 @@ wss.on('connection', (ws) => {
             case 'findMatch':
                 if (waitingPlayer && waitingPlayer !== ws && waitingPlayer.readyState === WebSocket.OPEN) {
                     const room = createRoom(waitingPlayer, ws);
-                    waitingPlayer.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 1 }));
-                    ws.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 2 }));
+                    waitingPlayer.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 1, dicePhase: true }));
+                    ws.send(JSON.stringify({ type: 'matched', roomId: room.id, player: 2, dicePhase: true }));
                     waitingPlayer = null;
                 } else {
                     waitingPlayer = ws;
@@ -308,7 +317,11 @@ wss.on('connection', (ws) => {
                     winner: null,
                     waitingForOpponent: true,
                     moveHistory: [],
-                    undoRequest: null
+                    undoRequest: null,
+                    dicePhase: true,
+                    diceValues: [null, null],
+                    diceRolled: [false, false],
+                    playerNames: [null, null]
                 });
                 ws.roomId = crRoomId;
                 ws.playerIndex = 0;
@@ -318,19 +331,111 @@ wss.on('connection', (ws) => {
                 break;
 
             case 'joinRoom':
-                const joinRoom = rooms.get(data.roomId);
-                if (joinRoom && joinRoom.waitingForOpponent && joinRoom.players.length === 1) {
-                    joinRoom.players.push(ws);
-                    joinRoom.waitingForOpponent = false;
+                const joinRoomData = rooms.get(data.roomId);
+                if (joinRoomData && joinRoomData.waitingForOpponent && joinRoomData.players.length === 1) {
+                    joinRoomData.players.push(ws);
+                    joinRoomData.waitingForOpponent = false;
                     ws.roomId = data.roomId;
                     ws.playerIndex = 1;
+                    
+                    // 设置昵称
+                    if (data.playerName) {
+                        joinRoomData.playerNames[1] = data.playerName;
+                    }
 
-                    joinRoom.players[0].send(JSON.stringify({ type: 'opponentJoined', player: 1, roomId: data.roomId }));
-                    ws.send(JSON.stringify({ type: 'opponentJoined', player: 2, roomId: data.roomId }));
+                    // 双方都发送对手加入的消息，进入骰子阶段
+                    joinRoomData.players[0].send(JSON.stringify({ 
+                        type: 'opponentJoined', 
+                        player: 1, 
+                        roomId: data.roomId,
+                        dicePhase: true,
+                        opponentName: data.playerName || '对手'
+                    }));
+                    ws.send(JSON.stringify({ 
+                        type: 'opponentJoined', 
+                        player: 2, 
+                        roomId: data.roomId,
+                        dicePhase: true,
+                        opponentName: joinRoomData.playerNames[0] || '对手'
+                    }));
                     // 广播等待房间列表
                     broadcastWaitingRooms();
                 } else {
                     ws.send(JSON.stringify({ type: 'error', message: 'Room not found or already full' }));
+                }
+                break;
+                
+            case 'setPlayerName':
+                const nameRoom = rooms.get(ws.roomId);
+                if (nameRoom && ws.playerIndex !== undefined) {
+                    nameRoom.playerNames[ws.playerIndex] = data.playerName;
+                    // 广播昵称给对手
+                    const opponent = nameRoom.players.find(p => p !== ws);
+                    if (opponent && opponent.readyState === WebSocket.OPEN) {
+                        opponent.send(JSON.stringify({
+                            type: 'opponentNameChanged',
+                            opponentName: data.playerName
+                        }));
+                    }
+                }
+                break;
+                
+            case 'rollDice':
+                const diceRoom = rooms.get(ws.roomId);
+                if (!diceRoom || !diceRoom.dicePhase) return;
+                if (diceRoom.diceRolled[ws.playerIndex]) return; // 已投掷过
+                
+                // 生成1-6的随机点数
+                const diceValue = Math.floor(Math.random() * 6) + 1;
+                diceRoom.diceValues[ws.playerIndex] = diceValue;
+                diceRoom.diceRolled[ws.playerIndex] = true;
+                
+                // 广播骰子结果给双方
+                broadcastToRoom(diceRoom, {
+                    type: 'diceRolled',
+                    player: ws.playerIndex + 1,
+                    value: diceValue,
+                    diceValues: diceRoom.diceValues,
+                    diceRolled: diceRoom.diceRolled
+                });
+                
+                // 检查双方是否都投掷了
+                if (diceRoom.diceRolled[0] && diceRoom.diceRolled[1]) {
+                    // 决定先手
+                    const player1Dice = diceRoom.diceValues[0];
+                    const player2Dice = diceRoom.diceValues[1];
+                    
+                    let firstPlayer;
+                    if (player1Dice > player2Dice) {
+                        firstPlayer = 0; // 玩家1先手
+                    } else if (player2Dice > player1Dice) {
+                        firstPlayer = 1; // 玩家2先手
+                    } else {
+                        // 平局，重新投掷
+                        diceRoom.diceValues = [null, null];
+                        diceRoom.diceRolled = [false, false];
+                        
+                        setTimeout(() => {
+                            broadcastToRoom(diceRoom, {
+                                type: 'diceTie',
+                                message: `点数相同(${player1Dice} vs ${player2Dice})，重新投掷！`
+                            });
+                        }, 100);
+                        return;
+                    }
+                    
+                    // 进入游戏阶段
+                    diceRoom.dicePhase = false;
+                    diceRoom.currentTurn = firstPlayer;
+                    
+                    setTimeout(() => {
+                        broadcastToRoom(diceRoom, {
+                            type: 'diceComplete',
+                            firstPlayer: firstPlayer + 1,
+                            diceValues: diceRoom.diceValues,
+                            playerNames: diceRoom.playerNames
+                        });
+                    }, 100);
                 }
                 break;
 
@@ -368,6 +473,20 @@ wss.on('connection', (ws) => {
                 }
                 // 广播等待房间列表
                 broadcastWaitingRooms();
+                break;
+                
+            case 'chatMessage':
+                const chatRoom = rooms.get(ws.roomId);
+                if (chatRoom && data.content) {
+                    const senderName = chatRoom.playerNames[ws.playerIndex] || `玩家${ws.playerIndex + 1}`;
+                    // 广播聊天消息给房间内的所有玩家
+                    broadcastToRoom(chatRoom, {
+                        type: 'chatMessage',
+                        messageType: data.messageType || 'text',
+                        content: data.content,
+                        from: senderName
+                    });
+                }
                 break;
         }
     });
