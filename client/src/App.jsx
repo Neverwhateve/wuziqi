@@ -23,6 +23,7 @@ function App() {
   const [showUndoNotification, setShowUndoNotification] = useState(null) // 显示悔棋通知
   const [lastMove, setLastMove] = useState(null) // 最后一颗落子位置
   const [hideGameOverOverlay, setHideGameOverOverlay] = useState(false) // 是否隐藏游戏结束弹窗
+  const [waitingRooms, setWaitingRooms] = useState([]) // 等待中的房间列表
   const wsRef = useRef(null)
 
   const connect = useCallback(() => {
@@ -134,6 +135,9 @@ function App() {
         setShowUndoNotification('对方拒绝了悔棋请求')
         setTimeout(() => setShowUndoNotification(null), 2000)
         break
+      case 'waitingRoomsList':
+        setWaitingRooms(data.rooms || [])
+        break
     }
   }
 
@@ -148,6 +152,13 @@ function App() {
         }
       }, 500)
     }
+  }
+
+  const cancelMatch = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'cancelMatch' }))
+    }
+    setGameState('menu')
   }
 
   const createRoom = () => {
@@ -171,6 +182,19 @@ function App() {
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomInput }))
+        }
+      }, 500)
+    }
+  }
+
+  const joinWaitingRoom = (roomId) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'joinRoom', roomId: roomId }))
+    } else {
+      connect()
+      setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomId }))
         }
       }, 500)
     }
@@ -266,6 +290,22 @@ function App() {
                 加入
               </button>
             </div>
+            {waitingRooms.length > 0 && (
+              <div className="waiting-rooms-list">
+                <h3>等待中的房间</h3>
+                <div className="waiting-rooms">
+                  {waitingRooms.map((room) => (
+                    <button
+                      key={room}
+                      className="btn btn-small waiting-room-btn"
+                      onClick={() => joinWaitingRoom(room)}
+                    >
+                      房间 {room}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -273,6 +313,9 @@ function App() {
           <div className="matching">
             <div className="spinner"></div>
             <p>匹配中...</p>
+            <button className="btn btn-secondary" onClick={cancelMatch}>
+              取消
+            </button>
           </div>
         )}
 

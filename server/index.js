@@ -43,6 +43,25 @@ const wss = new WebSocket.Server({ server });
 const rooms = new Map();
 let waitingPlayer = null;
 
+// 广播等待中的房间列表给所有客户端
+function broadcastWaitingRooms() {
+    const waitingRoomList = [];
+    rooms.forEach((room, roomId) => {
+        if (room.waitingForOpponent && room.players.length === 1) {
+            waitingRoomList.push(roomId);
+        }
+    });
+    
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+                type: 'waitingRoomsList',
+                rooms: waitingRoomList
+            }));
+        }
+    });
+}
+
 function generateRoomId() {
     let roomId;
     do {
@@ -236,10 +255,24 @@ function handleDisconnect(ws) {
     if (waitingPlayer === ws) {
         waitingPlayer = null;
     }
+    // 广播等待房间列表
+    broadcastWaitingRooms();
 }
 
 wss.on('connection', (ws) => {
     console.log('New player connected');
+    
+    // 发送等待房间列表给新连接的客户端
+    const waitingRoomList = [];
+    rooms.forEach((room, roomId) => {
+        if (room.waitingForOpponent && room.players.length === 1) {
+            waitingRoomList.push(roomId);
+        }
+    });
+    ws.send(JSON.stringify({
+        type: 'waitingRoomsList',
+        rooms: waitingRoomList
+    }));
 
     ws.on('message', (message) => {
         let data;
@@ -259,6 +292,8 @@ wss.on('connection', (ws) => {
                 } else {
                     waitingPlayer = ws;
                     ws.send(JSON.stringify({ type: 'waiting' }));
+                    // 广播等待房间列表
+                    broadcastWaitingRooms();
                 }
                 break;
 
@@ -278,6 +313,8 @@ wss.on('connection', (ws) => {
                 ws.roomId = crRoomId;
                 ws.playerIndex = 0;
                 ws.send(JSON.stringify({ type: 'roomCreated', roomId: crRoomId }));
+                // 广播等待房间列表
+                broadcastWaitingRooms();
                 break;
 
             case 'joinRoom':
@@ -290,6 +327,8 @@ wss.on('connection', (ws) => {
 
                     joinRoom.players[0].send(JSON.stringify({ type: 'opponentJoined', player: 1, roomId: data.roomId }));
                     ws.send(JSON.stringify({ type: 'opponentJoined', player: 2, roomId: data.roomId }));
+                    // 广播等待房间列表
+                    broadcastWaitingRooms();
                 } else {
                     ws.send(JSON.stringify({ type: 'error', message: 'Room not found or already full' }));
                 }
@@ -315,10 +354,20 @@ wss.on('connection', (ws) => {
                 handleRestart(ws);
                 break;
 
+            case 'cancelMatch':
+                if (waitingPlayer === ws) {
+                    waitingPlayer = null;
+                }
+                // 广播等待房间列表
+                broadcastWaitingRooms();
+                break;
+
             case 'leaveRoom':
                 if (ws.roomId) {
                     handleDisconnect(ws);
                 }
+                // 广播等待房间列表
+                broadcastWaitingRooms();
                 break;
         }
     });

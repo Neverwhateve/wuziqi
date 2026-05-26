@@ -67,6 +67,38 @@ body {
   align-items: center;
 }
 
+.waiting-rooms-list {
+  margin-top: 20px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.waiting-rooms-list h3 {
+  font-size: 16px;
+  margin: 0 0 12px 0;
+  text-align: center;
+  color: #fff;
+}
+
+.waiting-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.waiting-room-btn {
+  width: 100%;
+  padding: 10px 20px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.3);
+  border: 2px solid #262626;
+  box-shadow: 3px 3px 0 #262626;
+}
+
+.waiting-room-btn:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
 .btn {
   padding: 16px 48px;
   font-size: 18px;
