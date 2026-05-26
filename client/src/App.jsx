@@ -21,6 +21,8 @@ function App() {
   const [roomInput, setRoomInput] = useState('')
   const [undoRequest, setUndoRequest] = useState(null) // 悔棋请求状态
   const [showUndoNotification, setShowUndoNotification] = useState(null) // 显示悔棋通知
+  const [lastMove, setLastMove] = useState(null) // 最后一颗落子位置
+  const [hideGameOverOverlay, setHideGameOverOverlay] = useState(false) // 是否隐藏游戏结束弹窗
   const wsRef = useRef(null)
 
   const connect = useCallback(() => {
@@ -94,6 +96,7 @@ function App() {
           return newBoard
         })
         setCurrentTurn(data.currentTurn)
+        setLastMove({ row: data.row, col: data.col })
         break
       case 'gameOver':
         setWinner(data.winner)
@@ -342,24 +345,31 @@ function App() {
                 ))}
                 
                 {board.map((row, rowIndex) => (
-                  row.map((cell, colIndex) => (
-                    <div
-                      key={`${rowIndex}-${colIndex}`}
-                      className="intersection"
-                      style={{
-                        left: `${colIndex * CELL_SIZE}px`,
-                        top: `${rowIndex * CELL_SIZE}px`
-                      }}
-                      onClick={() => handleIntersectionClick(rowIndex, colIndex)}
-                    >
-                      {cell !== 0 && (
-                        <div className={`piece ${cell === 1 ? 'black' : 'white'}`}></div>
-                      )}
-                      {cell === 0 && (
-                        <div className="hover-indicator"></div>
-                      )}
-                    </div>
-                  ))
+                  row.map((cell, colIndex) => {
+                    const isLastMove = lastMove && lastMove.row === rowIndex && lastMove.col === colIndex
+                    return (
+                      <div
+                        key={`${rowIndex}-${colIndex}`}
+                        className="intersection"
+                        style={{
+                          left: `${colIndex * CELL_SIZE}px`,
+                          top: `${rowIndex * CELL_SIZE}px`
+                        }}
+                        onClick={() => handleIntersectionClick(rowIndex, colIndex)}
+                      >
+                        {cell !== 0 && (
+                          <div className={`piece ${cell === 1 ? 'black' : 'white'} ${isLastMove ? 'last-move' : ''}`}>
+                            {isLastMove && (
+                              <div className="last-move-marker"></div>
+                            )}
+                          </div>
+                        )}
+                        {cell === 0 && (
+                          <div className="hover-indicator"></div>
+                        )}
+                      </div>
+                    )
+                  })
                 ))}
                 {/* 星位点 */}
                 {[[3,3], [3,11], [7,7], [11,3], [11,11]].map(([row, col]) => (
@@ -418,7 +428,7 @@ function App() {
               </div>
             )}
 
-            {winner && (
+            {winner && !hideGameOverOverlay && (
               <div className="game-over-overlay">
                 <div className="game-over-dialog">
                   <div className="game-over-title">
@@ -434,9 +444,20 @@ function App() {
                     <button className="btn btn-secondary" onClick={backToMenu}>
                       返回主菜单
                     </button>
+                    <button className="btn btn-secondary btn-small" onClick={() => setHideGameOverOverlay(true)}>
+                      查看棋盘
+                    </button>
                   </div>
                 </div>
               </div>
+            )}
+            {winner && hideGameOverOverlay && (
+              <button 
+                className="btn btn-secondary btn-small view-board-button" 
+                onClick={() => setHideGameOverOverlay(false)}
+              >
+                返回结果
+              </button>
             )}
 
             {!winner && (

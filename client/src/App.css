@@ -339,6 +339,30 @@ body {
   box-shadow: 4px 4px 0 #262626;
 }
 
+.piece.last-move {
+  position: relative;
+}
+
+.last-move-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4444;
+  z-index: 1;
+}
+
+.piece.black.last-move .last-move-marker {
+  background: #ff4444;
+}
+
+.piece.white.last-move .last-move-marker {
+  background: #ff4444;
+}
+
 @keyframes placepiece {
   0% {
     transform: scale(0) translate(0, 0);
@@ -502,6 +526,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.view-board-button {
+  margin-top: 10px;
 }
 
 @media (max-width: 600px) {
