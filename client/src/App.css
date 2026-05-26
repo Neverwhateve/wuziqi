@@ -7,7 +7,7 @@
   --color-board: #f3c8a1;
   --color-board-border: #262626;
   --color-grid: #a86b59;
-  --color-piece-black: #191938;
+  --color-piece-black: #1a1a1a;
   --color-piece-white: #f1f1f1;
   --color-text: #262626;
   --color-text-dim: #575757;
@@ -331,7 +331,10 @@ body {
 
 .piece.black {
   background: var(--color-piece-black);
-  box-shadow: 4px 4px 0 #262626;
+  box-shadow: 
+    4px 4px 0 #262626,
+    inset 2px 2px 4px rgba(255, 255, 255, 0.15);
+  border-color: #333;
 }
 
 .piece.white {
