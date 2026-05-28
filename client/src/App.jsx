@@ -189,12 +189,6 @@ function App() {
         setDicePhase(false)
         setCurrentTurn(data.firstPlayer - 1)
         break
-      case 'yieldComplete':
-        setDicePhase(false)
-        setCurrentTurn(data.firstPlayer - 1)
-        setDiceRolled(false)
-        setDiceValues([null, null])
-        break
       case 'init':
         setCurrentTurn(data.currentTurn)
         break
@@ -340,9 +334,10 @@ function App() {
   }
   
   const yieldFirst = () => {
-    if (!dicePhase) return
+    if (!dicePhase || diceRolled) return
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'yieldFirst' }))
+      setDiceRolled(true)
     }
   }
   

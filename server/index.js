@@ -509,20 +509,53 @@ wss.on('connection', (ws) => {
             case 'yieldFirst':
                 const yieldRoom = rooms.get(ws.roomId);
                 if (!yieldRoom || !yieldRoom.dicePhase) return;
+                if (yieldRoom.diceRolled[ws.playerIndex]) return;
                 
-                const opponentIndex = ws.playerIndex === 0 ? 1 : 0;
-                
-                yieldRoom.dicePhase = false;
-                yieldRoom.currentTurn = opponentIndex;
-                yieldRoom.diceValues = [null, null];
-                yieldRoom.diceRolled = [false, false];
+                yieldRoom.diceValues[ws.playerIndex] = 0;
+                yieldRoom.diceRolled[ws.playerIndex] = true;
                 
                 broadcastToRoom(yieldRoom, {
-                    type: 'yieldComplete',
-                    firstPlayer: opponentIndex + 1,
-                    yieldPlayer: ws.playerIndex + 1,
-                    playerNames: yieldRoom.playerNames
+                    type: 'diceRolled',
+                    player: ws.playerIndex + 1,
+                    value: 0,
+                    diceValues: yieldRoom.diceValues,
+                    diceRolled: yieldRoom.diceRolled
                 });
+                
+                if (yieldRoom.diceRolled[0] && yieldRoom.diceRolled[1]) {
+                    const player1Dice = yieldRoom.diceValues[0];
+                    const player2Dice = yieldRoom.diceValues[1];
+                    
+                    let firstPlayer;
+                    if (player1Dice > player2Dice) {
+                        firstPlayer = 0;
+                    } else if (player2Dice > player1Dice) {
+                        firstPlayer = 1;
+                    } else {
+                        yieldRoom.diceValues = [null, null];
+                        yieldRoom.diceRolled = [false, false];
+                        
+                        setTimeout(() => {
+                            broadcastToRoom(yieldRoom, {
+                                type: 'diceTie',
+                                message: `点数相同(${player1Dice} vs ${player2Dice})，重新投掷！`
+                            });
+                        }, 100);
+                        return;
+                    }
+                    
+                    yieldRoom.dicePhase = false;
+                    yieldRoom.currentTurn = firstPlayer;
+                    
+                    setTimeout(() => {
+                        broadcastToRoom(yieldRoom, {
+                            type: 'diceComplete',
+                            firstPlayer: firstPlayer + 1,
+                            diceValues: yieldRoom.diceValues,
+                            playerNames: yieldRoom.playerNames
+                        });
+                    }, 100);
+                }
                 break;
 
             case 'move':
