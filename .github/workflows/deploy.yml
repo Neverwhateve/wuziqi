@@ -24,6 +24,5 @@ jobs:
             cd /root/wuziqi
             git pull
             npm run build
-            cp -r /root/wuziqi/server/public/* /var/www/wuziqi/
             pm2 restart wuziqi
             echo "✅ Deploy completed successfully!"
