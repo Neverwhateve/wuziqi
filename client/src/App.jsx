@@ -31,7 +31,9 @@ function App() {
   const [diceValues, setDiceValues] = useState([null, null]) // 骰子点数
   const [chatMessages, setChatMessages] = useState([]) // 聊天消息
   const [chatInputValue, setChatInputValue] = useState('') // 聊天输入框值
+  const [danmakuList, setDanmakuList] = useState([]) // 弹幕列表
   const wsRef = useRef(null)
+  const chatMessagesRef = useRef(null)
   const reconnectTimerRef = useRef(null)
   const heartbeatTimerRef = useRef(null)
   const reconnectAttemptsRef = useRef(0)
@@ -115,6 +117,13 @@ function App() {
       }
     }
   }, [])
+
+  // 自动滚动聊天到最新
+  useEffect(() => {
+    if (chatMessagesRef.current) {
+      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight
+    }
+  }, [chatMessages])
 
   const handleMessage = (data) => {
     switch (data.type) {
@@ -236,9 +245,22 @@ function App() {
         setChatMessages(prev => [...prev, {
           type: data.messageType, // 'text' 或 'emoji'
           content: data.content,
-          from: data.from,
+          from: data.senderIndex === player - 1 ? 'me' : data.from,
           timestamp: Date.now()
         }])
+        
+        // 如果是表情，接收者也添加弹幕
+        if (data.messageType === 'emoji' && data.senderIndex !== player - 1) {
+          const newDanmaku = {
+            id: Date.now() + Math.random(),
+            content: data.content,
+            top: Math.random() * 60 + 10
+          }
+          setDanmakuList(prev => [...prev, newDanmaku])
+          setTimeout(() => {
+            setDanmakuList(prev => prev.filter(d => d.id !== newDanmaku.id))
+          }, 3000)
+        }
         break
     }
   }
@@ -303,13 +325,20 @@ function App() {
         messageType,
         content
       }))
-      // 本地显示自己的消息
-      setChatMessages(prev => [...prev, {
-        type: messageType,
-        content,
-        from: 'me',
-        timestamp: Date.now()
-      }])
+      
+      // 如果是表情，添加弹幕
+      if (messageType === 'emoji') {
+        const newDanmaku = {
+          id: Date.now(),
+          content: content,
+          top: Math.random() * 60 + 10 // 随机垂直位置
+        }
+        setDanmakuList(prev => [...prev, newDanmaku])
+        // 3秒后移除弹幕
+        setTimeout(() => {
+          setDanmakuList(prev => prev.filter(d => d.id !== newDanmaku.id))
+        }, 3000)
+      }
     }
     if (messageType === 'text') {
       setChatInputValue('')
@@ -556,7 +585,7 @@ function App() {
 
             {!dicePhase && gameState === 'playing' && !winner && (
               <div className="chat-container">
-                <div className="chat-messages">
+                <div className="chat-messages" ref={chatMessagesRef}>
                   {chatMessages.map((msg, idx) => (
                     <div key={idx} className={`chat-message ${msg.from === 'me' ? 'mine' : 'theirs'}`}>
                       {msg.type === 'emoji' ? (
@@ -594,6 +623,19 @@ function App() {
                 </div>
               </div>
             )}
+
+            {/* 弹幕容器 */}
+            <div className="danmaku-container">
+              {danmakuList.map(danmaku => (
+                <div
+                  key={danmaku.id}
+                  className="danmaku"
+                  style={{ top: `${danmaku.top}%` }}
+                >
+                  {danmaku.content}
+                </div>
+              ))}
+            </div>
 
             <div className="board-container">
               <div 

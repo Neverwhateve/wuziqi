@@ -800,3 +800,31 @@ body {
   transform: translate(2px, 2px);
   box-shadow: none;
 }
+
+/* 弹幕样式 */
+.danmaku-container {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  height: 120px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.danmaku {
+  position: absolute;
+  font-size: 32px;
+  white-space: nowrap;
+  animation: danmakuScroll 3s linear forwards;
+  text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+  z-index: 100;
+}
+
+@keyframes danmakuScroll {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-200%);
+  }
+}

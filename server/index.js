@@ -517,7 +517,8 @@ wss.on('connection', (ws) => {
                         type: 'chatMessage',
                         messageType: data.messageType || 'text',
                         content: data.content,
-                        from: senderName
+                        from: senderName,
+                        senderIndex: ws.playerIndex
                     });
                 }
                 break;
