@@ -24,6 +24,7 @@ function App() {
   const [lastMove, setLastMove] = useState(null) // 最后一颗落子位置
   const [hideGameOverOverlay, setHideGameOverOverlay] = useState(false) // 是否隐藏游戏结束弹窗
   const [waitingRooms, setWaitingRooms] = useState([]) // 等待中的房间列表
+  const [playingRooms, setPlayingRooms] = useState([]) // 进行中的房间列表
   const [playerName, setPlayerName] = useState('') // 玩家昵称
   const [opponentName, setOpponentName] = useState('对手') // 对手昵称
   const [dicePhase, setDicePhase] = useState(false) // 是否处于骰子阶段
@@ -32,6 +33,8 @@ function App() {
   const [chatMessages, setChatMessages] = useState([]) // 聊天消息
   const [chatInputValue, setChatInputValue] = useState('') // 聊天输入框值
   const [danmakuList, setDanmakuList] = useState([]) // 弹幕列表
+  const [isSpectator, setIsSpectator] = useState(false) // 是否为观战模式
+  const [spectatorPlayerNames, setSpectatorPlayerNames] = useState([null, null]) // 观战模式下的玩家昵称
   const wsRef = useRef(null)
   const chatMessagesRef = useRef(null)
   const reconnectTimerRef = useRef(null)
@@ -186,6 +189,12 @@ function App() {
         setDicePhase(false)
         setCurrentTurn(data.firstPlayer - 1)
         break
+      case 'yieldComplete':
+        setDicePhase(false)
+        setCurrentTurn(data.firstPlayer - 1)
+        setDiceRolled(false)
+        setDiceValues([null, null])
+        break
       case 'init':
         setCurrentTurn(data.currentTurn)
         break
@@ -238,8 +247,20 @@ function App() {
         setShowUndoNotification('对方拒绝了悔棋请求')
         setTimeout(() => setShowUndoNotification(null), 2000)
         break
-      case 'waitingRoomsList':
-        setWaitingRooms(data.rooms || [])
+      case 'roomsList':
+        setWaitingRooms(data.waitingRooms || []);
+        setPlayingRooms(data.playingRooms || []);
+        break
+      case 'spectating':
+        setRoomId(data.roomId);
+        setBoard(data.board);
+        setCurrentTurn(data.currentTurn);
+        setDicePhase(data.dicePhase);
+        setDiceValues(data.diceValues);
+        setDiceRolled(data.diceRolled[0] && data.diceRolled[1]);
+        setSpectatorPlayerNames(data.playerNames);
+        setIsSpectator(true);
+        setGameState('spectating');
         break
       case 'chatMessage':
         setChatMessages(prev => [...prev, {
@@ -318,6 +339,13 @@ function App() {
     }
   }
   
+  const yieldFirst = () => {
+    if (!dicePhase) return
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'yieldFirst' }))
+    }
+  }
+  
   const sendChatMessage = (messageType, content) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
@@ -372,6 +400,19 @@ function App() {
       setTimeout(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: 'joinRoom', roomId: roomId, playerName: playerName }))
+        }
+      }, 500)
+    }
+  }
+
+  const spectateRoom = (roomId) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'spectateRoom', roomId: roomId }))
+    } else {
+      connect()
+      setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'spectateRoom', roomId: roomId }))
         }
       }, 500)
     }
@@ -436,6 +477,8 @@ function App() {
     setWinner(null)
     setError(null)
     setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0)))
+    setIsSpectator(false)
+    setSpectatorPlayerNames([null, null])
   }
 
   const boardWidth = (BOARD_SIZE - 1) * CELL_SIZE
@@ -507,6 +550,25 @@ function App() {
                 </div>
               </div>
             )}
+            {playingRooms.length > 0 && (
+              <div className="playing-rooms-list">
+                <h3>进行中的对局</h3>
+                <div className="playing-rooms">
+                  {playingRooms.map((room) => (
+                    <button
+                      key={room.roomId}
+                      className="btn btn-small playing-room-btn"
+                      onClick={() => spectateRoom(room.roomId)}
+                    >
+                      <div className="room-id-text">房间 {room.roomId}</div>
+                      <div className="room-players">
+                        {room.playerNames[0] || '玩家1'} vs {room.playerNames[1] || '玩家2'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -529,6 +591,125 @@ function App() {
             <p className="waiting-text">等待对手加入...</p>
             <button className="btn btn-secondary" onClick={backToMenu}>
               返回
+            </button>
+          </div>
+        )}
+
+        {gameState === 'spectating' && (
+          <div className="game">
+            <div className="spectator-badge">👁️ 观战模式</div>
+            <div className="game-info">
+              <div className={`player-info ${currentTurn === 0 ? 'active' : ''}`}>
+                <div className="piece black"></div>
+                <span>黑方 {spectatorPlayerNames[0] || '玩家1'}</span>
+              </div>
+              <div className="vs">VS</div>
+              <div className={`player-info ${currentTurn === 1 ? 'active' : ''}`}>
+                <div className="piece white"></div>
+                <span>白方 {spectatorPlayerNames[1] || '玩家2'}</span>
+              </div>
+            </div>
+
+            <div className="turn-indicator">
+              {dicePhase ? (
+                '骰子阶段'
+              ) : (
+                `${currentTurn === 0 ? spectatorPlayerNames[0] || '黑方' : spectatorPlayerNames[1] || '白方'} 的回合`
+              )}
+            </div>
+            
+            {dicePhase && (
+              <div className="dice-phase">
+                <div className="dice-container">
+                  <div className="dice-info">
+                    <div className={`dice ${diceValues[0] !== null ? 'rolled' : ''}`}>
+                      {diceValues[0] !== null ? diceValues[0] : '?'}
+                    </div>
+                    <span>{spectatorPlayerNames[0] || '玩家1'}</span>
+                  </div>
+                  <div className="dice-info">
+                    <div className={`dice ${diceValues[1] !== null ? 'rolled' : ''}`}>
+                      {diceValues[1] !== null ? diceValues[1] : '?'}
+                    </div>
+                    <span>{spectatorPlayerNames[1] || '玩家2'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="board-container">
+              <div 
+                className="board"
+                style={{
+                  width: `${boardWidth}px`,
+                  height: `${boardHeight}px`
+                }}
+              >
+                {Array.from({ length: BOARD_SIZE }).map((_, i) => (
+                  <div
+                    key={`h-line-${i}`}
+                    className="grid-line horizontal"
+                    style={{
+                      top: `${i * CELL_SIZE}px`,
+                      left: '0px',
+                      width: `${boardWidth}px`
+                    }}
+                  ></div>
+                ))}
+                {Array.from({ length: BOARD_SIZE }).map((_, i) => (
+                  <div
+                    key={`v-line-${i}`}
+                    className="grid-line vertical"
+                    style={{
+                      left: `${i * CELL_SIZE}px`,
+                      top: '0px',
+                      height: `${boardHeight}px`
+                    }}
+                  ></div>
+                ))}
+                
+                {board.map((row, rowIndex) => (
+                  row.map((cell, colIndex) => {
+                    const isLastMove = lastMove && lastMove.row === rowIndex && lastMove.col === colIndex
+                    return (
+                      <div
+                        key={`${rowIndex}-${colIndex}`}
+                        className="intersection"
+                        style={{
+                          left: `${colIndex * CELL_SIZE}px`,
+                          top: `${rowIndex * CELL_SIZE}px`
+                        }}
+                      >
+                        {cell !== 0 && (
+                          <div className={`piece ${cell === 1 ? 'black' : 'white'} ${isLastMove ? 'last-move' : ''}`}>
+                            {isLastMove && (
+                              <div className="last-move-marker"></div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                ))}
+                {[[3,3], [3,11], [7,7], [11,3], [11,11]].map(([row, col]) => (
+                  <div
+                    key={`star-${row}-${col}`}
+                    className="star-point"
+                    style={{
+                      left: `${col * CELL_SIZE}px`,
+                      top: `${row * CELL_SIZE}px`
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="room-info">
+              房间号: {roomId}
+            </div>
+
+            <button className="btn btn-secondary" onClick={backToMenu}>
+              退出观战
             </button>
           </div>
         )}
@@ -573,13 +754,22 @@ function App() {
                     <span>对手点数</span>
                   </div>
                 </div>
-                <button 
-                  className="btn btn-primary roll-dice-btn" 
-                  onClick={rollDice}
-                  disabled={diceRolled}
-                >
-                  {diceRolled ? '等待对手...' : '投掷骰子 🎲'}
-                </button>
+                <div className="dice-buttons">
+                  <button 
+                    className="btn btn-primary roll-dice-btn" 
+                    onClick={rollDice}
+                    disabled={diceRolled}
+                  >
+                    {diceRolled ? '等待对手...' : '投掷骰子 🎲'}
+                  </button>
+                  <button 
+                    className="btn btn-secondary yield-btn" 
+                    onClick={yieldFirst}
+                    disabled={diceRolled}
+                  >
+                    让先 ✋
+                  </button>
+                </div>
               </div>
             )}
 

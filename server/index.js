@@ -43,20 +43,28 @@ const wss = new WebSocket.Server({ server });
 const rooms = new Map();
 let waitingPlayer = null;
 
-// 广播等待中的房间列表给所有客户端
-function broadcastWaitingRooms() {
+function broadcastRooms() {
     const waitingRoomList = [];
+    const playingRoomList = [];
+    
     rooms.forEach((room, roomId) => {
         if (room.waitingForOpponent && room.players.length === 1) {
             waitingRoomList.push(roomId);
+        } else if (!room.waitingForOpponent && room.players.length === 2 && !room.gameOver) {
+            playingRoomList.push({
+                roomId: roomId,
+                playerNames: room.playerNames,
+                currentTurn: room.currentTurn + 1
+            });
         }
     });
     
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
-                type: 'waitingRoomsList',
-                rooms: waitingRoomList
+                type: 'roomsList',
+                waitingRooms: waitingRoomList,
+                playingRooms: playingRoomList
             }));
         }
     });
@@ -75,19 +83,18 @@ function createRoom(player1, player2) {
     const room = {
         id: roomId,
         players: [player1, player2],
+        spectators: [], // 观战者列表
         currentTurn: 0,
         board: Array(15).fill(null).map(() => Array(15).fill(0)),
         gameOver: false,
         winner: null,
-        moveHistory: [], // 记录落子历史
-        undoRequest: null, // 悔棋请求状态 {requesterIndex: ...}
-        // 骰子相关
-        dicePhase: true, // 是否处于骰子阶段
-        diceValues: [null, null], // 双方骰子点数
-        diceRolled: [false, false], // 双方是否已投掷
-        playerNames: [null, null] // 玩家昵称
+        moveHistory: [],
+        undoRequest: null,
+        dicePhase: true,
+        diceValues: [null, null],
+        diceRolled: [false, false],
+        playerNames: [null, null]
     };
-    // 保存玩家1的昵称
     if (player1.playerName) {
         room.playerNames[0] = player1.playerName;
     }
@@ -105,6 +112,11 @@ function broadcastToRoom(room, message) {
     room.players.forEach(player => {
         if (player.readyState === WebSocket.OPEN) {
             player.send(JSON.stringify(message));
+        }
+    });
+    room.spectators.forEach(spectator => {
+        if (spectator.readyState === WebSocket.OPEN) {
+            spectator.send(JSON.stringify(message));
         }
     });
 }
@@ -257,34 +269,44 @@ function handleDisconnect(ws) {
     if (ws.roomId) {
         const room = rooms.get(ws.roomId);
         if (room) {
-            const opponent = room.players.find(p => p !== ws);
-            if (opponent && opponent.readyState === WebSocket.OPEN) {
-                opponent.send(JSON.stringify({ type: 'opponentLeft' }));
-                opponent.roomId = null;
+            if (ws.isSpectator) {
+                room.spectators = room.spectators.filter(s => s !== ws);
+            } else {
+                const opponent = room.players.find(p => p !== ws);
+                if (opponent && opponent.readyState === WebSocket.OPEN) {
+                    opponent.send(JSON.stringify({ type: 'opponentLeft' }));
+                    opponent.roomId = null;
+                }
+                rooms.delete(ws.roomId);
             }
-            rooms.delete(ws.roomId);
         }
     }
     if (waitingPlayer === ws) {
         waitingPlayer = null;
     }
-    // 广播等待房间列表
-    broadcastWaitingRooms();
+    broadcastRooms();
 }
 
 wss.on('connection', (ws) => {
     console.log('New player connected');
     
-    // 发送等待房间列表给新连接的客户端
     const waitingRoomList = [];
+    const playingRoomList = [];
     rooms.forEach((room, roomId) => {
         if (room.waitingForOpponent && room.players.length === 1) {
             waitingRoomList.push(roomId);
+        } else if (!room.waitingForOpponent && room.players.length === 2 && !room.gameOver) {
+            playingRoomList.push({
+                roomId: roomId,
+                playerNames: room.playerNames,
+                currentTurn: room.currentTurn + 1
+            });
         }
     });
     ws.send(JSON.stringify({
-        type: 'waitingRoomsList',
-        rooms: waitingRoomList
+        type: 'roomsList',
+        waitingRooms: waitingRoomList,
+        playingRooms: playingRoomList
     }));
 
     ws.on('message', (message) => {
@@ -329,8 +351,7 @@ wss.on('connection', (ws) => {
                         ws.playerName = data.playerName;
                     }
                     ws.send(JSON.stringify({ type: 'waiting' }));
-                    // 广播等待房间列表
-                    broadcastWaitingRooms();
+                    broadcastRooms();
                 }
                 break;
 
@@ -360,7 +381,7 @@ wss.on('connection', (ws) => {
                 ws.playerIndex = 0;
                 ws.send(JSON.stringify({ type: 'roomCreated', roomId: crRoomId }));
                 // 广播等待房间列表
-                broadcastWaitingRooms();
+                broadcastRooms();
                 break;
 
             case 'joinRoom':
@@ -371,12 +392,10 @@ wss.on('connection', (ws) => {
                     ws.roomId = data.roomId;
                     ws.playerIndex = 1;
                     
-                    // 设置昵称
                     if (data.playerName) {
                         joinRoomData.playerNames[1] = data.playerName;
                     }
 
-                    // 双方都发送对手加入的消息，进入骰子阶段
                     joinRoomData.players[0].send(JSON.stringify({ 
                         type: 'opponentJoined', 
                         player: 1, 
@@ -391,10 +410,31 @@ wss.on('connection', (ws) => {
                         dicePhase: true,
                         opponentName: joinRoomData.playerNames[0] || '对手'
                     }));
-                    // 广播等待房间列表
-                    broadcastWaitingRooms();
+                    broadcastRooms();
                 } else {
                     ws.send(JSON.stringify({ type: 'error', message: 'Room not found or already full' }));
+                }
+                break;
+                
+            case 'spectateRoom':
+                const spectateRoomData = rooms.get(data.roomId);
+                if (spectateRoomData && spectateRoomData.players.length === 2 && !spectateRoomData.gameOver) {
+                    spectateRoomData.spectators.push(ws);
+                    ws.roomId = data.roomId;
+                    ws.isSpectator = true;
+                    
+                    ws.send(JSON.stringify({
+                        type: 'spectating',
+                        roomId: data.roomId,
+                        board: spectateRoomData.board,
+                        currentTurn: spectateRoomData.currentTurn,
+                        playerNames: spectateRoomData.playerNames,
+                        dicePhase: spectateRoomData.dicePhase,
+                        diceValues: spectateRoomData.diceValues,
+                        diceRolled: spectateRoomData.diceRolled
+                    }));
+                } else {
+                    ws.send(JSON.stringify({ type: 'error', message: 'Room not found or not available for spectating' }));
                 }
                 break;
                 
@@ -416,14 +456,12 @@ wss.on('connection', (ws) => {
             case 'rollDice':
                 const diceRoom = rooms.get(ws.roomId);
                 if (!diceRoom || !diceRoom.dicePhase) return;
-                if (diceRoom.diceRolled[ws.playerIndex]) return; // 已投掷过
+                if (diceRoom.diceRolled[ws.playerIndex]) return;
                 
-                // 生成1-6的随机点数
                 const diceValue = Math.floor(Math.random() * 6) + 1;
                 diceRoom.diceValues[ws.playerIndex] = diceValue;
                 diceRoom.diceRolled[ws.playerIndex] = true;
                 
-                // 广播骰子结果给双方
                 broadcastToRoom(diceRoom, {
                     type: 'diceRolled',
                     player: ws.playerIndex + 1,
@@ -432,19 +470,16 @@ wss.on('connection', (ws) => {
                     diceRolled: diceRoom.diceRolled
                 });
                 
-                // 检查双方是否都投掷了
                 if (diceRoom.diceRolled[0] && diceRoom.diceRolled[1]) {
-                    // 决定先手
                     const player1Dice = diceRoom.diceValues[0];
                     const player2Dice = diceRoom.diceValues[1];
                     
                     let firstPlayer;
                     if (player1Dice > player2Dice) {
-                        firstPlayer = 0; // 玩家1先手
+                        firstPlayer = 0;
                     } else if (player2Dice > player1Dice) {
-                        firstPlayer = 1; // 玩家2先手
+                        firstPlayer = 1;
                     } else {
-                        // 平局，重新投掷
                         diceRoom.diceValues = [null, null];
                         diceRoom.diceRolled = [false, false];
                         
@@ -457,7 +492,6 @@ wss.on('connection', (ws) => {
                         return;
                     }
                     
-                    // 进入游戏阶段
                     diceRoom.dicePhase = false;
                     diceRoom.currentTurn = firstPlayer;
                     
@@ -470,6 +504,25 @@ wss.on('connection', (ws) => {
                         });
                     }, 100);
                 }
+                break;
+                
+            case 'yieldFirst':
+                const yieldRoom = rooms.get(ws.roomId);
+                if (!yieldRoom || !yieldRoom.dicePhase) return;
+                
+                const opponentIndex = ws.playerIndex === 0 ? 1 : 0;
+                
+                yieldRoom.dicePhase = false;
+                yieldRoom.currentTurn = opponentIndex;
+                yieldRoom.diceValues = [null, null];
+                yieldRoom.diceRolled = [false, false];
+                
+                broadcastToRoom(yieldRoom, {
+                    type: 'yieldComplete',
+                    firstPlayer: opponentIndex + 1,
+                    yieldPlayer: ws.playerIndex + 1,
+                    playerNames: yieldRoom.playerNames
+                });
                 break;
 
             case 'move':
@@ -497,7 +550,7 @@ wss.on('connection', (ws) => {
                     waitingPlayer = null;
                 }
                 // 广播等待房间列表
-                broadcastWaitingRooms();
+                broadcastRooms();
                 break;
 
             case 'leaveRoom':
@@ -505,7 +558,7 @@ wss.on('connection', (ws) => {
                     handleDisconnect(ws);
                 }
                 // 广播等待房间列表
-                broadcastWaitingRooms();
+                broadcastRooms();
                 break;
                 
             case 'chatMessage':

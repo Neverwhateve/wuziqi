@@ -99,6 +99,63 @@ body {
   background: rgba(255, 255, 255, 0.5);
 }
 
+.playing-rooms-list {
+  margin-top: 16px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.playing-rooms-list h3 {
+  font-size: 16px;
+  margin: 0 0 12px 0;
+  text-align: center;
+  color: #fff;
+}
+
+.playing-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.playing-room-btn {
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 14px;
+  background: rgba(120, 134, 215, 0.6);
+  border: 2px solid #262626;
+  box-shadow: 3px 3px 0 #262626;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.playing-room-btn:hover {
+  background: rgba(120, 134, 215, 0.8);
+}
+
+.room-id-text {
+  font-weight: 600;
+}
+
+.room-players {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.spectator-badge {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #f6ad55;
+  color: #262626;
+  font-weight: 600;
+  font-size: 14px;
+  border: 2px solid #262626;
+  box-shadow: 3px 3px 0 #262626;
+  margin-bottom: 16px;
+}
+
 .btn {
   padding: 16px 48px;
   font-size: 18px;
@@ -291,8 +348,6 @@ body {
   position: relative;
   background: var(--color-board);
   border: 6px solid #f3c8a1;
-  box-shadow:
-    inset 0 0 0 4px #262626;
   border-radius: 0;
   aspect-ratio: 1/1;
   flex-shrink: 0;
@@ -703,8 +758,25 @@ body {
   background: linear-gradient(135deg, #ffeb3b 0%, #ffc107 100%);
 }
 
+.dice-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
 .roll-dice-btn {
   font-size: 18px;
+}
+
+.yield-btn {
+  font-size: 18px;
+  background: #fc8181;
+  color: #fff;
+}
+
+.yield-btn:hover:not(:disabled) {
+  background: #f56565;
 }
 
 .chat-container {
@@ -725,6 +797,8 @@ body {
   padding: 10px;
   background: rgba(255, 255, 255, 0.3);
   border: 2px solid #262626;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-message {
@@ -732,20 +806,22 @@ body {
   padding: 6px 12px;
   border-radius: 4px;
   display: inline-block;
+  max-width: 80%;
+  word-wrap: break-word;
 }
 
 .chat-message.mine {
   background: var(--color-primary);
   color: #fff;
-  float: right;
-  clear: both;
+  align-self: flex-end;
+  margin-left: auto;
 }
 
 .chat-message.theirs {
   background: #fff;
   color: #262626;
-  float: left;
-  clear: both;
+  align-self: flex-start;
+  margin-right: auto;
 }
 
 .emoji-message {
@@ -815,6 +891,7 @@ body {
   position: absolute;
   font-size: 32px;
   white-space: nowrap;
+  left: 100%;
   animation: danmakuScroll 3s linear forwards;
   text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
   z-index: 100;
@@ -822,9 +899,9 @@ body {
 
 @keyframes danmakuScroll {
   from {
-    transform: translateX(100%);
+    transform: translateX(0);
   }
   to {
-    transform: translateX(-200%);
+    transform: translateX(-100vw);
   }
 }
