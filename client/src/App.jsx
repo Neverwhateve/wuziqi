@@ -490,6 +490,10 @@ function App() {
           </div>
         )}
 
+        <div className="footer">
+          <div className="icp-info">苏ICP备2026034066号-1</div>
+        </div>
+
         {gameState === 'menu' && (
           <div className="menu">
             <div className="name-input-container">
